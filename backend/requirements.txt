@@ -1,0 +1,8 @@
+
+fastapi
+uvicorn
+requests
+python-dotenv
+pydantic
+astral>=3.2,<4
+tzdata
