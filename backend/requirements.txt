@@ -1,8 +1,9 @@
 
-fastapi
-uvicorn
-requests
-python-dotenv
-pydantic
+fastapi>=0.110,<1
+uvicorn>=0.27,<1
+requests>=2.31,<3
+python-dotenv>=1,<2
+pydantic>=2,<3
 astral>=3.2,<4
-tzdata
+tzdata>=2024.1
+psycopg[binary]>=3.2,<4

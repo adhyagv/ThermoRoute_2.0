@@ -1,9 +1,8 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { X } from 'lucide-react';
 import appVersion from '../VERSION.json';
 import { Header, type WorkspacePage } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
-import RoutePlanner from './components/navigation/RoutePlanner';
 import {
   CityPlannerModule,
   CivicModule,
@@ -15,6 +14,8 @@ import {
 } from './components/modules/WorkspaceModules';
 import type { ThermalJourneySeed } from './types/navigation';
 
+const RoutePlanner = lazy(() => import('./components/navigation/RoutePlanner'));
+
 function SettingsDialog({ onClose }: { onClose: () => void }) {
   return <div className="settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -22,7 +23,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
       <div className="settings-detail"><strong>Default city</strong><span>Bengaluru, Karnataka, India</span></div>
       <div className="settings-detail"><strong>Data handling</strong><span>Live, forecast, estimated, fallback and demo values are identified separately.</span></div>
       <div className="settings-detail"><strong>External services</strong><span>OpenStreetMap / OSRM, Nominatim, OpenFreeMap, Open-Meteo and optional FortyGuard.</span></div>
-      <div className="settings-detail"><strong>Privacy</strong><span>GPS is requested only after you choose a location-related action. Civic reports are stored in the local backend SQLite database.</span></div>
+      <div className="settings-detail"><strong>Privacy</strong><span>GPS is requested only after you choose a location-related action. Civic reports are stored in the backend-configured database.</span></div>
       <p className="module-footnote">Public map and weather services have usage policies and availability limits. This is a research prototype, not an emergency-navigation or medical device.</p>
       <button className="primary-button" onClick={onClose}>Done</button>
     </section>
@@ -42,7 +43,7 @@ function App() {
       <main className="main-content">
         <Header activePage={active} onNavigate={setActive} lightMode={lightMode} onToggleTheme={() => setLightMode((value) => !value)} onOpenSettings={() => setSettingsOpen(true)}/>
         {active === 'Overview' && <OverviewModule onNavigate={(page) => setActive(page as WorkspacePage)} time={time} setTime={setTime}/>}
-        {active === 'Navigation' && <RoutePlanner onExploreThermalJourney={(journey) => { setThermalJourney(journey); setActive('AI Insights'); }}/>}
+        {active === 'Navigation' && <Suspense fallback={<div className="module-loading" role="status">Loading navigation workspace…</div>}><RoutePlanner onExploreThermalJourney={(journey) => { setThermalJourney(journey); setActive('AI Insights'); }}/></Suspense>}
         {active === 'Environment' && <EnvironmentModule/>}
         {active === 'Mobility' && <MobilityModule/>}
         {active === 'Civic' && <CivicModule/>}

@@ -1,4 +1,5 @@
 import type { RealRoute, TransportMode } from '../types/navigation';
+import { API_BASE_URL } from './apiBase';
 
 export type HeatProfile = 'adult' | 'elderly' | 'child' | 'asthma' | 'outdoor_worker' | 'cyclist' | 'pedestrian';
 
@@ -121,8 +122,6 @@ export interface RouteIntelligenceResult {
   limitations: string[];
 }
 
-const API_BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
-
 function bengaluruDepartureIso(value: string): string {
   const parsed = new Date(`${value}:00+05:30`);
   if (!Number.isFinite(parsed.getTime())) throw new Error('Enter a valid Bengaluru departure date and time.');
@@ -143,7 +142,7 @@ export async function analyzeRouteIntelligence(
     sampleSpacingM?: number;
   } = {},
 ): Promise<RouteIntelligenceResult> {
-  const response = await fetch(`${API_BASE}/api/route-intelligence/analyze`, {
+  const response = await fetch(`${API_BASE_URL}/api/route-intelligence/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({

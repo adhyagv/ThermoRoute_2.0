@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -25,12 +25,13 @@ import {
   Car,
   RefreshCw,
 } from 'lucide-react';
-import RealRouteMap from './RealRouteMap';
 import { describeAqi, describeWeatherCode, fetchLocalConditions, type LocalConditions } from '../../services/localConditions';
 import { fetchRealRoutes, fetchThermalAnalysis, geocodePlace, toGoogleMapsUrl } from '../../services/realRouting';
 import { fetchTrafficControls } from '../../services/trafficControls';
 import { preferenceDescription, rankRoutes } from '../../services/routeScoring';
 import type { LivePosition, Place, RealRoute, RoutePreference, ThermalAnalysisResponse, ThermalJourneySeed, TrafficControl, TransportMode } from '../../types/navigation';
+
+const RealRouteMap = lazy(() => import('./RealRouteMap'));
 
 const modeOptions: Array<{ value: TransportMode; label: string; icon: typeof Car }> = [
   { value: 'driving', label: 'Drive', icon: Car },
@@ -518,7 +519,7 @@ export default function RoutePlanner({ onExploreThermalJourney }: { onExploreThe
     void fetchRealRoutes(sharedOrigin, sharedDestination, sharedMode === 'cycling' || sharedMode === 'walking' ? sharedMode : 'driving')
       .then((sharedRoutes) => { setRoutes(sharedRoutes); setSelectedRouteId(sharedRoutes[0]?.id ?? null); })
       .catch((error: unknown) => setRouteError(error instanceof Error ? error.message : 'Could not load the shared route.'));
-  }, []);
+  }, [loadConditions]);
 
   const routeRecommendation = thermalAnalysis?.recommendation?.best_journey;
   const thermalReady = routes.some((route) => typeof route.thermalExposure === 'number');
@@ -694,16 +695,18 @@ export default function RoutePlanner({ onExploreThermalJourney }: { onExploreThe
               <div><span className="route-card-kicker">INTERACTIVE 3D CITY MAP</span><h3>{origin && destination ? `${origin.label.split(',')[0]} → ${destination.label.split(',')[0]}` : 'Explore the road network'}</h3></div>
               <span className="map-source-label"><span /> REAL ROAD GEOMETRY</span>
             </div>
-            <RealRouteMap
-              routes={routes}
-              selectedRouteId={selectedRouteId}
-              origin={origin}
-              destination={destination}
-              currentPosition={gpsPosition}
-              trafficControls={trafficControls}
-              onSelectRoute={setSelectedRouteId}
-              onCenterCurrent={centerOnCurrent}
-            />
+            <Suspense fallback={<div className="module-loading" role="status">Loading interactive map…</div>}>
+              <RealRouteMap
+                routes={routes}
+                selectedRouteId={selectedRouteId}
+                origin={origin}
+                destination={destination}
+                currentPosition={gpsPosition}
+                trafficControls={trafficControls}
+                onSelectRoute={setSelectedRouteId}
+                onCenterCurrent={centerOnCurrent}
+              />
+            </Suspense>
             <div className="traffic-sign-legend" aria-label="Traffic-control marker legend">
               <span>🚦 Signal</span><span>🛑 Stop</span><span>🔻 Give way</span><span>🚸 Crossing</span><span>📷 Speed camera</span>
             </div>

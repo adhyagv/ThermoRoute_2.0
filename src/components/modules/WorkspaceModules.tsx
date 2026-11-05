@@ -1,20 +1,26 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ComponentProps, type FormEvent, type ReactNode } from 'react';
 import {
   Activity, AlertTriangle, ArrowRight, Bike, Building2, CheckCircle2, CloudRain,
   Compass, ExternalLink, Leaf, Loader2, MapPin, Navigation, RefreshCw,
   Route as RouteIcon, Send, Sun, ThermometerSun, Wind, X, Pause, Play,
   SkipBack, SkipForward,
 } from 'lucide-react';
-import CityDigitalTwin from '../scene/CityDigitalTwin';
-import RealRouteMap from '../navigation/RealRouteMap';
+import { API_BASE_URL } from '../../services/apiBase';
 import { fetchLocalConditions, describeAqi, describeWeatherCode, type LocalConditions } from '../../services/localConditions';
 import { fetchRealRoutes, geocodePlace } from '../../services/realRouting';
 import { analyzeRouteIntelligence, type HeatProfile, type RouteIntelligenceResult } from '../../services/routeIntelligence';
 import { rankRoutes, preferenceDescription } from '../../services/routeScoring';
 import type { LivePosition, Place, RealRoute, RoutePreference, ThermalJourneySeed, TrafficControl, TransportMode } from '../../types/navigation';
 
-const API_BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
+const CityDigitalTwin = lazy(() => import('../scene/CityDigitalTwin'));
+const RealRouteMap = lazy(() => import('../navigation/RealRouteMap'));
 const BENGALURU = { latitude: 12.9716, longitude: 77.5946 };
+
+function LazyRouteMap(props: ComponentProps<typeof RealRouteMap>) {
+  return <Suspense fallback={<div className="module-loading" role="status">Loading interactive map…</div>}>
+    <RealRouteMap {...props}/>
+  </Suspense>;
+}
 
 function formatModelNumber(value: number | undefined, digits = 1): string {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '—';
@@ -57,7 +63,7 @@ export function OverviewModule({ onNavigate, time, setTime }: { onNavigate: (pag
   const load = useCallback(async () => {
     setLoading(true); setHealthError(''); setConditionsError('');
     const [healthResult, conditionsResult] = await Promise.allSettled([
-      fetch(`${API_BASE}/api/health`, { headers: { Accept: 'application/json' } }).then(async (response) => { if (!response.ok) throw new Error(`API ${response.status}`); return await response.json() as HealthData; }),
+      fetch(`${API_BASE_URL}/api/health`, { headers: { Accept: 'application/json' } }).then(async (response) => { if (!response.ok) throw new Error(`API ${response.status}`); return await response.json() as HealthData; }),
       fetchLocalConditions({ label: 'Bengaluru city centre', displayName: 'Bengaluru city centre', ...BENGALURU }),
     ]);
     if (healthResult.status === 'fulfilled') setHealth(healthResult.value); else { setHealth(null); setHealthError(healthResult.reason instanceof Error ? healthResult.reason.message : 'Backend unavailable'); }
@@ -81,7 +87,7 @@ export function OverviewModule({ onNavigate, time, setTime }: { onNavigate: (pag
             { label: 'Plan a route', detail: 'Real road geometry and turn instructions', page: 'Navigation', icon: Navigation },
             { label: 'Check environment', detail: 'Current point weather and air quality', page: 'Environment', icon: Wind },
             { label: 'Compare mobility', detail: 'Drive, cycle and walk route alternatives', page: 'Mobility', icon: Bike },
-            { label: 'Report a street issue', detail: 'Persist a citizen report in SQLite', page: 'Civic', icon: MapPin },
+            { label: 'Report a street issue', detail: 'Persist a citizen report in the configured database', page: 'Civic', icon: MapPin },
           ].map(({ label, detail, page, icon: Icon }) => <button className="quick-action" key={page} onClick={() => onNavigate(page)}><span className="quick-action-icon"><Icon size={17}/></span><span><strong>{label}</strong><small>{detail}</small></span><ArrowRight size={15}/></button>)}
         </div>
       </section>
@@ -99,7 +105,7 @@ export function OverviewModule({ onNavigate, time, setTime }: { onNavigate: (pag
     </div>
     <section className="module-panel overview-city-panel">
       <div className="module-panel-heading"><div><span className="eyebrow">CONCEPT VISUALIZATION</span><h3>Bengaluru digital twin concept</h3><p>This Three.js scene is synthetic and is not georeferenced or measured.</p></div><Provenance kind="Demo" source="Procedural 3D concept scene"/></div>
-      <div className="overview-city-scene"><CityDigitalTwin time={time}/></div>
+      <div className="overview-city-scene"><Suspense fallback={<div className="module-loading" role="status">Loading concept scene…</div>}><CityDigitalTwin time={time}/></Suspense></div>
       <div className="timeline-control"><label htmlFor="overview-time">Illustrative time of day <strong>{String(time).padStart(2,'0')}:00</strong></label><input id="overview-time" type="range" min="6" max="19" value={time} onChange={(event) => setTime(Number(event.target.value))}/></div>
     </section>
   </section>;
@@ -121,7 +127,7 @@ export function EnvironmentModule() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to load environmental conditions.'); }
     finally { setBusy(false); }
   }, [place, query]);
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [load]);
   return <section className="module-page">
     <ModuleHeading eyebrow="ENVIRONMENTAL INTELLIGENCE" title="Conditions around a place" description="Current model-derived point conditions from Open-Meteo. These are not street-by-street measurements or a citywide sensor network." />
     <form className="module-search-form" onSubmit={(event) => { event.preventDefault(); void load(); }}><MapPin size={16}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search an address or Bengaluru landmark"/><button className="primary-button" disabled={busy}>{busy ? <Loader2 className="spin" size={15}/> : <RefreshCw size={15}/>} Refresh conditions</button></form>
@@ -232,7 +238,7 @@ export function MobilityModule() {
       <div className="mobility-layout"><div className="mobility-route-list">{ranked.map(({ route, score, complexityTurns, rank }) => {
         const environmental = routeAnalysis?.route_comparison.find((candidate) => candidate.route_id === route.id);
         return <button key={route.id} onClick={() => { setSelected(route.id); setRouteAnalysis(null); }} className={`mobility-route-card ${selected === route.id ? 'selected' : ''}`}><div><strong>Route {rank} {rank === 1 ? '· top ranked' : ''}</strong><span>{(route.distanceMeters / 1000).toFixed(1)} km · {Math.max(1, Math.round(route.durationSeconds / 60))} min · {complexityTurns} decision turns</span>{environmental && <small>Exposure {environmental.route_exposure_score?.toFixed(1) ?? 'Unavailable'} · shade {environmental.route_shade_percentage === null ? 'Unavailable' : `${environmental.route_shade_percentage.toFixed(0)}%`} · AQI {environmental.mean_us_aqi?.toFixed(0) ?? 'Unavailable'} · {environmental.pareto_dominated ? 'dominated' : 'not dominated'}</small>}</div><b>{score}/100</b></button>;
-      })}</div><div className="mobility-map"><RealRouteMap routes={routes} selectedRouteId={selected} origin={origin} destination={destination} currentPosition={null} trafficControls={[]} onSelectRoute={(routeId) => { setSelected(routeId); setRouteAnalysis(null); }} onCenterCurrent={() => undefined}/></div></div>
+      })}</div><div className="mobility-map"><LazyRouteMap routes={routes} selectedRouteId={selected} origin={origin} destination={destination} currentPosition={null} trafficControls={[]} onSelectRoute={(routeId) => { setSelected(routeId); setRouteAnalysis(null); }} onCenterCurrent={() => undefined}/></div></div>
       <p className="module-footnote">Changing route, strategy, or preference clears the previous environmental comparison. Choose “Analyze route environments” again to recalculate.</p>
       <div className="module-footnote">Source: OpenStreetMap-based OSRM public routing service. Route times are routing estimates without live congestion.</div>
     </>}
@@ -266,10 +272,13 @@ export function CivicModule() {
   const [summary, setSummary] = useState<{ reports_by_category?: Record<string, number>; reports_by_neighbourhood_cell?: Array<{ cell: string; count: number }>; seven_day_trend?: Array<{ date: string; count: number }>; thirty_day_trend?: Array<{ month: string; count: number }>; density_note?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [moderatorToken, setModeratorToken] = useState('');
+  const [storage, setStorage] = useState<'sqlite' | 'postgresql' | null>(null);
   const load = useCallback(async () => {
-    setLoading(true); setError('');
+    setLoading(true); setLoadError('');
     try {
       const params = new URLSearchParams({ limit: '500' });
       if (categoryFilter) params.set('category', categoryFilter);
@@ -277,22 +286,23 @@ export function CivicModule() {
       if (dateFrom) params.set('from_date', bengaluruDate(`${dateFrom}T00:00`).toISOString());
       if (dateTo) params.set('to_date', bengaluruDate(`${dateTo}T23:59`).toISOString());
       const [reportResponse, summaryResponse] = await Promise.all([
-        fetch(`${API_BASE}/api/civic/reports?${params}`),
-        fetch(`${API_BASE}/api/civic/hotspots?days=30`),
+        fetch(`${API_BASE_URL}/api/civic/reports?${params}`),
+        fetch(`${API_BASE_URL}/api/civic/hotspots?days=30`),
       ]);
       if (!reportResponse.ok || !summaryResponse.ok) throw new Error(`Civic API returned ${reportResponse.status}/${summaryResponse.status}`);
-      const body = await reportResponse.json() as { reports?: CivicReport[] };
+      const body = await reportResponse.json() as { reports?: CivicReport[]; storage?: 'sqlite' | 'postgresql' };
       setReports(body.reports ?? []);
+      setStorage(body.storage ?? null);
       setSummary(await summaryResponse.json());
     }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not load civic reports. Start the backend and retry.'); }
+    catch (reason) { setLoadError(reason instanceof Error ? reason.message : 'Could not load civic reports. Start the backend and retry.'); }
     finally { setLoading(false); }
   }, [categoryFilter, statusFilter, dateFrom, dateTo]);
   useEffect(() => { void load(); }, [load]);
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError(''); setMessage('');
     try {
-      const response = await fetch(`${API_BASE}/api/civic/reports`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category, note, anonymous, latitude: Number(latitude), longitude: Number(longitude) }) });
+      const response = await fetch(`${API_BASE_URL}/api/civic/reports`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category, note, anonymous, latitude: Number(latitude), longitude: Number(longitude) }) });
       const body = await response.json() as { message?: string; detail?: string };
       if (!response.ok) throw new Error(body.detail ?? body.message ?? `Civic API returned ${response.status}`);
       setNote(''); setMessage('Report saved as unverified. Community reports are not automatically validated.'); await load();
@@ -320,22 +330,43 @@ export function CivicModule() {
     });
   }, [reports]);
   const updateStatus = async (report: CivicReport, status: CivicReport['status']) => {
+    if (!moderatorToken.trim()) {
+      setError('Enter the backend-configured moderator token to change report status.');
+      return;
+    }
     setError('');
     try {
-      const response = await fetch(`${API_BASE}/api/civic/reports/${report.id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/civic/reports/${report.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${moderatorToken.trim()}`,
+        },
         body: JSON.stringify({ status }),
       });
-      if (!response.ok) throw new Error(`Status update failed (${response.status}).`);
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { detail?: string };
+        throw new Error(body.detail ?? `Status update failed (${response.status}).`);
+      }
       await load();
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not update report status.'); }
   };
   const deleteReport = async (report: CivicReport) => {
+    if (!moderatorToken.trim()) {
+      setError('Enter the backend-configured moderator token to delete a report.');
+      return;
+    }
+    if (!window.confirm('Delete this civic report permanently?')) return;
     setError('');
     try {
-      const response = await fetch(`${API_BASE}/api/civic/reports/${report.id}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error(`Report deletion failed (${response.status}).`);
+      const response = await fetch(`${API_BASE_URL}/api/civic/reports/${report.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${moderatorToken.trim()}` },
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { detail?: string };
+        throw new Error(body.detail ?? `Report deletion failed (${response.status}).`);
+      }
       await load();
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not delete report.'); }
   };
@@ -351,7 +382,7 @@ export function CivicModule() {
       <label className="civic-anonymous"><input type="checkbox" checked={anonymous} onChange={(event) => setAnonymous(event.target.checked)}/> Submit anonymously</label>
       <button className="primary-button" disabled={busy}>{busy ? <Loader2 className="spin" size={15}/> : <Send size={15}/>} Submit civic report</button>
       {message && <div className="inline-success"><CheckCircle2 size={15}/>{message}</div>}{error && <div className="inline-error">{error}</div>}
-      <p className="module-footnote">Reports are public within this local app database. Do not include personal or sensitive information.</p>
+      <p className="module-footnote">Reports are public in the configured civic database. Do not include personal or sensitive information.</p>
     </form><div className="module-panel"><div className="module-panel-heading"><div><span className="eyebrow">COMMUNITY SIGNAL</span><h3>Reported hotspots</h3></div><strong>{reports.length} shown</strong></div>
       <div className="civic-filters">
         <label>Category<select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="">All categories</option>{Object.entries(civicLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -359,14 +390,16 @@ export function CivicModule() {
         <label>From<input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)}/></label>
         <label>To<input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)}/></label>
       </div>
-      {loading ? <div className="module-loading"><Loader2 className="spin"/>Loading stored reports…</div> : reports.length === 0 ? <div className="empty-state"><MapPin size={25}/><strong>No reports stored yet</strong><span>Submit a street observation to create the first record.</span></div> : <>
+      <label className="civic-moderator-token">Moderator token<input type="password" autoComplete="current-password" value={moderatorToken} onChange={(event) => setModeratorToken(event.target.value)} placeholder="Enter configured moderator token"/></label>
+      <p className="module-footnote">Required for status changes and deletion. The token stays in this page's memory and is not saved.</p>
+      {loading ? <div className="module-loading"><Loader2 className="spin"/>Loading stored reports…</div> : loadError ? <div className="inline-error">{loadError}<button type="button" onClick={() => void load()}>Retry</button></div> : reports.length === 0 ? <div className="empty-state"><MapPin size={25}/><strong>No reports stored yet</strong><span>Submit a street observation to create the first record.</span></div> : <>
         <div className="hotspot-list">{Object.entries(categoryCounts).sort((a, b) => b[1] - a[1]).map(([key, count]) => <div key={key}><span>{civicLabels[key as CivicCategory] ?? key}</span><strong>{count}</strong></div>)}</div>
-        <p className="module-footnote">{summary?.density_note}</p>
-        <div className="civic-report-list">{reports.map((report) => <article key={report.id} className="civic-report"><div><strong>{civicLabels[report.category] ?? report.category}</strong><small>{report.latitude.toFixed(4)}, {report.longitude.toFixed(4)} · {new Date(report.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} · {report.anonymous ? 'Anonymous' : 'Not anonymous'}</small>{report.note && <p>{report.note}</p>}<label className="civic-status-control">Status<select value={report.status} onChange={(event) => void updateStatus(report, event.target.value as CivicReport['status'])}><option value="unverified">Unverified</option><option value="reviewed">Reviewed</option><option value="resolved">Resolved</option></select></label></div><div className="civic-report-actions"><a href={`https://www.openstreetmap.org/?mlat=${report.latitude}&mlon=${report.longitude}#map=18/${report.latitude}/${report.longitude}`} target="_blank" rel="noreferrer" aria-label="Open report on OpenStreetMap"><ExternalLink size={14}/></a><button type="button" className="icon-button" aria-label="Delete civic report" onClick={() => void deleteReport(report)}><X size={14}/></button></div></article>)}</div>
+        <p className="module-footnote">{summary?.density_note} Storage: {storage ?? 'unknown'}.</p>
+        <div className="civic-report-list">{reports.map((report) => <article key={report.id} className="civic-report"><div><strong>{civicLabels[report.category] ?? report.category}</strong><small>{report.latitude.toFixed(4)}, {report.longitude.toFixed(4)} · {new Date(report.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} · {report.anonymous ? 'Anonymous' : 'Not anonymous'}</small>{report.note && <p>{report.note}</p>}<label className="civic-status-control">Status<select value={report.status} disabled={!moderatorToken.trim()} title={moderatorToken.trim() ? 'Change report status' : 'Enter a moderator token to change status'} onChange={(event) => void updateStatus(report, event.target.value as CivicReport['status'])}><option value="unverified">Unverified</option><option value="reviewed">Reviewed</option><option value="resolved">Resolved</option></select></label></div><div className="civic-report-actions"><a href={`https://www.openstreetmap.org/?mlat=${report.latitude}&mlon=${report.longitude}#map=18/${report.latitude}/${report.longitude}`} target="_blank" rel="noreferrer" aria-label="Open report on OpenStreetMap"><ExternalLink size={14}/></a><button type="button" className="icon-button" aria-label="Delete civic report" title={moderatorToken.trim() ? 'Delete report' : 'Enter a moderator token to delete'} disabled={!moderatorToken.trim()} onClick={() => void deleteReport(report)}><X size={14}/></button></div></article>)}</div>
       </>}
     </div></div>
     {summary && <section className="module-panel civic-trends"><div className="module-panel-heading"><div><span className="eyebrow">SUBMISSION TRENDS</span><h3>Seven-day and thirty-day activity</h3></div></div><div className="civic-trend-grid"><div><strong>Last 7 days</strong>{(summary.seven_day_trend ?? []).map((item) => <span key={item.date}>{item.date}: {item.count}</span>)}</div><div><strong>Last 30 days by month</strong>{(summary.thirty_day_trend ?? []).map((item) => <span key={item.month}>{item.month}: {item.count}</span>)}</div><div><strong>Approximate area cells</strong>{(summary.reports_by_neighbourhood_cell ?? []).slice(0, 5).map((item) => <span key={item.cell}>{item.cell}: {item.count}</span>)}</div></div></section>}
-    <section className="module-panel civic-map-panel"><div className="module-panel-heading"><div><span className="eyebrow">FILTERED REPORT MAP</span><h3>Community submission clusters</h3></div><span>{reportClusters.length} approximate map cells</span></div><div className="city-planner-map"><RealRouteMap routes={[]} selectedRouteId={null} origin={null} destination={null} currentPosition={null} trafficControls={reportClusters} onSelectRoute={() => undefined} onCenterCurrent={() => undefined}/></div></section>
+    <section className="module-panel civic-map-panel"><div className="module-panel-heading"><div><span className="eyebrow">FILTERED REPORT MAP</span><h3>Community submission clusters</h3></div><span>{reportClusters.length} approximate map cells</span></div><div className="city-planner-map"><LazyRouteMap routes={[]} selectedRouteId={null} origin={null} destination={null} currentPosition={null} trafficControls={reportClusters} onSelectRoute={() => undefined} onCenterCurrent={() => undefined}/></div></section>
   </section>;
 }
 
@@ -546,7 +579,7 @@ export function InsightsModule({ initialJourney }: { initialJourney: ThermalJour
     {analysis && <>
       <section className="module-panel replay-panel">
         <div className="module-panel-heading"><div><span className="eyebrow">ESTIMATED · THERMAL ROUTE REPLAY</span><h3>Explore Thermal Journey</h3><p>Move through forecast arrival samples; the marker and active segment follow the selected OSRM route. Route coloring reflects mapped-shade estimates.</p></div><Provenance kind="Forecast" source="Open-Meteo / CAMS" time={analysis.analyzed_at}/></div>
-        <div className="replay-map"><RealRouteMap routes={routes} selectedRouteId={selectedRoute?.id ?? null} origin={origin} destination={destination} currentPosition={null} replayPosition={activeSample ? [activeSample.latitude, activeSample.longitude] : null} activeSegment={activeSample && activeNextSample ? [[activeSample.latitude, activeSample.longitude], [activeNextSample.latitude, activeNextSample.longitude]] : null} shadeSegments={shadeSegments} shadowPolygons={activeSample?.building_shadow_polygons ?? []} trafficControls={[]} onSelectRoute={(routeId) => { setSelectedRouteId(routeId); setAnalysis(null); }} onCenterCurrent={() => undefined}/></div>
+        <div className="replay-map"><LazyRouteMap routes={routes} selectedRouteId={selectedRoute?.id ?? null} origin={origin} destination={destination} currentPosition={null} replayPosition={activeSample ? [activeSample.latitude, activeSample.longitude] : null} activeSegment={activeSample && activeNextSample ? [[activeSample.latitude, activeSample.longitude], [activeNextSample.latitude, activeNextSample.longitude]] : null} shadeSegments={shadeSegments} shadowPolygons={activeSample?.building_shadow_polygons ?? []} trafficControls={[]} onSelectRoute={(routeId) => { setSelectedRouteId(routeId); setAnalysis(null); }} onCenterCurrent={() => undefined}/></div>
         <div className="replay-shade-legend"><span><i className="shade-legend-building"/> Estimated mapped building shadows</span><span><i className="shade-legend-shaded"/> Estimated shaded route segment</span><span><i className="shade-legend-sun"/> No mapped shade identified</span><span><i className="shade-legend-unknown"/> Unavailable</span></div>
         {activeSample && <div className="replay-controls">
           <div className="replay-toolbar">
@@ -646,7 +679,7 @@ export function SimulationModule() {
     } catch (reason) { setRows([]); setError(reason instanceof Error ? reason.message : 'Could not load forecast.'); }
     finally { setBusy(false); }
   }, [latitude, longitude]);
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [load]);
   const active = rows[selected];
   const maxTemp = Math.max(1, ...rows.map((row) => row.temperature_2m ?? 0));
   return <section className="module-page">
@@ -663,15 +696,16 @@ export function SimulationModule() {
 
 export function CityPlannerModule() {
   const [reports, setReports] = useState<CivicReport[]>([]);
+  const [storage, setStorage] = useState<'sqlite' | 'postgresql' | null>(null);
   const [currentPosition, setCurrentPosition] = useState<LivePosition | null>(null);
   const [error, setError] = useState('');
-  useEffect(() => { fetch(`${API_BASE}/api/civic/reports?limit=100`).then(async (response) => { if (!response.ok) throw new Error(`Civic API ${response.status}`); return await response.json() as { reports?: CivicReport[] }; }).then((body) => setReports(body.reports ?? [])).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Civic reports are unavailable.')); }, []);
+  useEffect(() => { fetch(`${API_BASE_URL}/api/civic/reports?limit=100`).then(async (response) => { if (!response.ok) throw new Error(`Civic API ${response.status}`); return await response.json() as { reports?: CivicReport[]; storage?: 'sqlite' | 'postgresql' }; }).then((body) => { setReports(body.reports ?? []); setStorage(body.storage ?? null); }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Civic reports are unavailable.')); }, []);
   const markers: TrafficControl[] = reports.map((report) => ({ id: `civic-${report.id}`, kind: 'traffic-sign', label: civicLabels[report.category] ?? report.category, detail: `${report.status} · ${report.note || 'Community submission; not scientifically measured'}`, latitude: report.latitude, longitude: report.longitude }));
   const center = () => { if (!navigator.geolocation) { setError('Geolocation is not supported.'); return; } navigator.geolocation.getCurrentPosition((position) => setCurrentPosition({ latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy }), (reason) => setError(reason.message), { enableHighAccuracy: true, timeout: 12000 }); };
   return <section className="module-page">
     <ModuleHeading eyebrow="GEOSPATIAL CITY PLANNER" title="Explore the mapped city" description="This map uses real map tiles and available OpenStreetMap building geometry. Civic pins are community reports from your local database; heat and shade overlays are not inferred without their required data." action={<button className="subtle-button" onClick={center}><LocateFixedFallback/> Center on me</button>} />
-    <div className="city-planner-map"><RealRouteMap routes={[]} selectedRouteId={null} origin={null} destination={null} currentPosition={currentPosition} trafficControls={markers} onSelectRoute={() => undefined} onCenterCurrent={center}/></div>
-    <div className="module-grid module-grid-3"><Metric label="Mapped civic reports" value={String(reports.length)} sub="Stored observations" icon={MapPin} provenance={<Provenance kind="Live" source="Local SQLite citizen submissions"/>}/><Metric label="3D buildings" value="Map coverage" sub="OSM footprints + available heights" icon={Building2} provenance={<Provenance kind="Estimated" source="OpenFreeMap / OSM"/>}/><Metric label="Heat / shade layers" value="Not computed" sub="Awaiting route-wide model" icon={ThermometerSun} provenance={<Provenance kind="Demo" source="No geospatial heat layer"/>}/></div>
+    <div className="city-planner-map"><LazyRouteMap routes={[]} selectedRouteId={null} origin={null} destination={null} currentPosition={currentPosition} trafficControls={markers} onSelectRoute={() => undefined} onCenterCurrent={center}/></div>
+    <div className="module-grid module-grid-3"><Metric label="Mapped civic reports" value={String(reports.length)} sub="Stored observations" icon={MapPin} provenance={<Provenance kind="Live" source={`${storage ?? 'Configured'} civic database`}/>}/><Metric label="3D buildings" value="Map coverage" sub="OSM footprints + available heights" icon={Building2} provenance={<Provenance kind="Estimated" source="OpenFreeMap / OSM"/>}/><Metric label="Heat / shade layers" value="Not computed" sub="Awaiting route-wide model" icon={ThermometerSun} provenance={<Provenance kind="Demo" source="No geospatial heat layer"/>}/></div>
     {error && <div className="inline-warning"><AlertTriangle size={15}/>{error} · The basemap can still be explored without civic pins.</div>}
     <div className="module-footnote">Map data: OpenFreeMap and OpenStreetMap contributors. Building coverage, height tags and civic report density vary by area. Use the Civic module to submit observations.</div>
   </section>;

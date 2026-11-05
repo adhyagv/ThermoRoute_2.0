@@ -1,3 +1,5 @@
+import { API_BASE_URL } from '../../services/apiBase';
+
 export const THERMAL_THRESHOLDS = {
   LOW: { min: 0, max: 29.99, color: '#2e9b4b' },
   MODERATE: { min: 30, max: 49.99, color: '#eab308' },
@@ -6,7 +8,7 @@ export const THERMAL_THRESHOLDS = {
 } as const;
 
 export const appConfig = {
-  apiBaseUrl: import.meta.env.VITE_API_URL ?? 'http://localhost:8000',
+  apiBaseUrl: API_BASE_URL,
   cityName: 'Bengaluru',
   timeOfDayDefault: 12.5
 };

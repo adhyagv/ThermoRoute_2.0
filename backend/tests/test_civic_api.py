@@ -1,7 +1,15 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.services import civic_store
+
+
+@pytest.fixture(autouse=True)
+def use_local_sqlite(tmp_path, monkeypatch):
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(civic_store, "DB_PATH", tmp_path / "api_civic.sqlite3")
 
 
 def test_civic_report_api_round_trip(tmp_path, monkeypatch):
@@ -27,8 +35,16 @@ def test_civic_report_rejects_invalid_coordinates():
     assert response.status_code == 422
 
 
+def test_civic_report_rejects_reversed_mixed_timezone_date_range():
+    response = TestClient(app).get(
+        "/api/civic/reports?from_date=2025-01-02T00:00:00&to_date=2025-01-01T23:00:00%2B00:00"
+    )
+    assert response.status_code == 422
+
+
 def test_civic_report_status_filter_and_crud_endpoints(tmp_path, monkeypatch):
     monkeypatch.setattr(civic_store, "DB_PATH", tmp_path / "crud_civic.sqlite3")
+    monkeypatch.setenv("CIVIC_ADMIN_TOKEN", "test-moderator-token")
     client = TestClient(app)
     created = client.post("/api/civic/reports", json={
         "category": "poor_air_quality",
@@ -39,10 +55,47 @@ def test_civic_report_status_filter_and_crud_endpoints(tmp_path, monkeypatch):
     })
     report_id = created.json()["report"]["id"]
     assert created.json()["report"]["status"] == "unverified"
-    updated = client.patch(f"/api/civic/reports/{report_id}", json={"status": "reviewed"})
+    updated = client.patch(
+        f"/api/civic/reports/{report_id}",
+        json={"status": "reviewed"},
+        headers={"Authorization": "Bearer test-moderator-token"},
+    )
     assert updated.status_code == 200
     filtered = client.get("/api/civic/reports?category=poor_air_quality&status=reviewed")
     assert filtered.json()["count"] == 1
     assert filtered.json()["reports"][0]["anonymous"] is True
     assert client.get("/api/civic/hotspots?days=30").status_code == 200
-    assert client.delete(f"/api/civic/reports/{report_id}").status_code == 204
+    assert client.delete(
+        f"/api/civic/reports/{report_id}",
+        headers={"Authorization": "Bearer test-moderator-token"},
+    ).status_code == 204
+
+
+def test_civic_moderation_requires_configured_admin_token(tmp_path, monkeypatch):
+    monkeypatch.setattr(civic_store, "DB_PATH", tmp_path / "protected_civic.sqlite3")
+    monkeypatch.delenv("CIVIC_ADMIN_TOKEN", raising=False)
+    client = TestClient(app)
+    created = client.post("/api/civic/reports", json={
+        "category": "too_hot",
+        "note": "",
+        "latitude": 12.93,
+        "longitude": 77.56,
+    })
+    report_id = created.json()["report"]["id"]
+
+    assert client.patch(
+        f"/api/civic/reports/{report_id}",
+        json={"status": "reviewed"},
+    ).status_code == 503
+    assert client.delete(f"/api/civic/reports/{report_id}").status_code == 503
+
+    monkeypatch.setenv("CIVIC_ADMIN_TOKEN", "test-moderator-token")
+    assert client.patch(
+        f"/api/civic/reports/{report_id}",
+        json={"status": "reviewed"},
+    ).status_code == 401
+    assert client.delete(
+        f"/api/civic/reports/{report_id}",
+        headers={"Authorization": "Bearer wrong-token"},
+    ).status_code == 401
+    assert client.get("/api/civic/reports").json()["count"] == 1

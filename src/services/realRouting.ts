@@ -1,4 +1,5 @@
 import type { NavigationStep, Place, RealRoute, TransportMode } from '../types/navigation';
+import { API_BASE_URL } from './apiBase';
 
 const NOMINATIM_URL = import.meta.env.VITE_NOMINATIM_URL ?? 'https://nominatim.openstreetmap.org/search';
 const ROUTING_BASE: Record<TransportMode, string> = {
@@ -190,8 +191,7 @@ export async function fetchThermalAnalysis(
   destination: Place,
   departureTime: string,
 ): Promise<import('../types/navigation').ThermalAnalysisResponse> {
-  const apiBase = (import.meta.env.VITE_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
-  const response = await fetch(`${apiBase}/api/optimize`, {
+  const response = await fetch(`${API_BASE_URL}/api/optimize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({

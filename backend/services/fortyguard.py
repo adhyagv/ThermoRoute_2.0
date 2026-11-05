@@ -12,7 +12,9 @@ from .integration_status import record_request_result, set_configured
 
 load_dotenv()
 
-BASE_URL = "https://api.fortyguard.com/v1"
+BASE_URL = os.getenv("FORTYGUARD_BASE_URL", "https://api.fortyguard.com").rstrip("/")
+if not BASE_URL.endswith("/v1"):
+    BASE_URL = f"{BASE_URL}/v1"
 
 API_KEY = os.getenv("FORTYGUARD_API_KEY")
 
@@ -64,25 +66,21 @@ class FortyGuardClient:
             )
 
         except requests.RequestException as error:
-            record_request_result(False, str(error))
-            raise FortyGuardError(
-                f"Unable to connect to FortyGuard: {error}"
-            )
+            record_request_result(False, "provider connection failed")
+            raise FortyGuardError("Unable to connect to FortyGuard.") from error
 
         if not response.ok:
-            message = f"FortyGuard {endpoint} failed: {response.status_code} - {response.text}"
+            record_request_result(False, f"provider returned HTTP {response.status_code}")
             set_configured(False)
-            raise FortyGuardError(message)
+            raise FortyGuardError(f"FortyGuard request failed with HTTP {response.status_code}.")
 
         record_request_result(True)
         try:
             return response.json()
 
-        except ValueError:
-            raise FortyGuardError(
-                f"FortyGuard returned invalid JSON: "
-                f"{response.text}"
-            )
+        except ValueError as error:
+            record_request_result(False, "provider returned invalid JSON")
+            raise FortyGuardError("FortyGuard returned an invalid response.") from error
 
     # =====================================================
     # COMMON GET
@@ -102,25 +100,20 @@ class FortyGuardClient:
             )
 
         except requests.RequestException as error:
-            record_request_result(False, str(error))
-            raise FortyGuardError(
-                f"Unable to connect to FortyGuard: {error}"
-            )
+            record_request_result(False, "provider connection failed")
+            raise FortyGuardError("Unable to connect to FortyGuard.") from error
 
         if not response.ok:
-            message = f"FortyGuard request failed: {response.status_code} - {response.text}"
-            record_request_result(False, message)
-            raise FortyGuardError(message)
+            record_request_result(False, f"provider returned HTTP {response.status_code}")
+            raise FortyGuardError(f"FortyGuard request failed with HTTP {response.status_code}.")
 
         record_request_result(True)
         try:
             return response.json()
 
-        except ValueError:
-            raise FortyGuardError(
-                f"FortyGuard returned invalid JSON: "
-                f"{response.text}"
-            )
+        except ValueError as error:
+            record_request_result(False, "provider returned invalid JSON")
+            raise FortyGuardError("FortyGuard returned an invalid response.") from error
 
     # =====================================================
     # HEATMAP

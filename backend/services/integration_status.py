@@ -36,7 +36,7 @@ def record_request_result(reachable: bool, error: str | None = None) -> None:
         _state["reachable"] = bool(reachable)
         _state["reachability_status"] = "reachable" if reachable else "unreachable"
         _state["checked_at"] = _now()
-        _state["last_error"] = error[:500] if error else None
+        _state["last_error"] = "External provider request failed." if error else None
 
 
 def record_sample_fallback(used_fallback: bool) -> None:

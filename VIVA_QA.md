@@ -6,7 +6,7 @@ It explores route comparison beyond travel time and distance. It estimates envir
 
 ## 2. What is the architecture?
 
-A React 18 and TypeScript frontend runs with Vite. MapLibre GL JS renders geospatial maps and available 3D building extrusions; Three.js renders a separate synthetic concept scene. A Python FastAPI backend validates requests and coordinates routing, forecast sampling, shade estimation, exposure scoring and SQLite civic reports.
+A React 18 and TypeScript frontend runs with Vite. MapLibre GL JS renders geospatial maps and available 3D building extrusions; Three.js renders a separate synthetic concept scene. A Python FastAPI backend validates requests and coordinates routing, forecast sampling, shade estimation, exposure scoring and civic reports stored in local SQLite or configured PostgreSQL.
 
 ## 3. Where does the route geometry come from?
 
@@ -34,7 +34,7 @@ It evaluates 13 departure candidates from the current request time through six h
 
 ## 9. What is the purpose of the Civic module and how is data stored?
 
-It allows users to report geotagged street observations such as high heat, no shade, waterlogging, broken signals or unsafe crossings. Reports are stored in a local SQLite database through FastAPI and displayed in the application. They are unverified user submissions and should not contain personal information.
+It allows users to report geotagged street observations such as high heat, no shade, waterlogging, broken signals or unsafe crossings. Reports are stored in local SQLite or configured PostgreSQL through FastAPI and displayed in the application. They are unverified user submissions and should not contain personal information; moderation requires a backend-configured token.
 
 ## 10. What are the key limitations and how do you handle data honesty?
 

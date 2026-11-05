@@ -12,9 +12,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      # npm install repairs the lockfile if a contributor has added a dependency.
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - run: npm audit --omit=dev
       - run: npm run check:version
+      - run: npm run lint
       - run: npm run type-check
       - run: npm run build
 

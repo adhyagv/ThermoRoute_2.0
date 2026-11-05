@@ -42,7 +42,7 @@ Use the answer cues as a concise guide; explain assumptions and limitations rath
     No. It holds route durations fixed and does not model future congestion or traffic-dependent travel time.
 
 14. **How are civic reports stored and validated?**  
-    FastAPI/Pydantic validates request fields and coordinates; SQLite stores reports using parameterized queries. New submissions are unverified and creation is rate-limited.
+    FastAPI/Pydantic validates request fields and coordinates; SQLite stores reports locally and PostgreSQL can be selected with `DATABASE_URL`. New submissions are unverified and creation is rate-limited; moderator actions require a backend-configured bearer token.
 
 15. **What does civic report density represent?**  
     The number/distribution of community submissions. It is not measured heat intensity, and approximate coordinate cells are not official neighbourhood boundaries.

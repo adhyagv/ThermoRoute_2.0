@@ -19,10 +19,10 @@ flowchart LR
   subgraph Services["FastAPI"]
     API["backend/main.py"]
     RIDGE["Shared route-intelligence service"]
-    SQLITE["Civic store (SQLite)"]
+    STORE["Civic store (SQLite locally / PostgreSQL when configured)"]
     LEGACY["Existing optimizer and health routes"]
     API --> RIDGE
-    API --> SQLITE
+    API --> STORE
     API --> LEGACY
   end
 
@@ -33,7 +33,7 @@ flowchart LR
   RIDGE --> AQ["Open-Meteo / CAMS air quality"]
   RIDGE --> OSM["Overpass / OpenStreetMap geometry"]
   RIDGE --> SUN["Astral solar position"]
-  SQLITE --> DB[("SQLite civic reports")]
+  STORE --> DB[("SQLite locally / PostgreSQL on hosted deployments")]
 ```
 
 ## Shared analysis flow
@@ -44,13 +44,13 @@ flowchart LR
 4. Batched Open-Meteo weather and air-quality forecasts are interpolated between adjacent valid hourly values at each sample's predicted arrival time. The service does not extrapolate or substitute origin values. Missing data remains unavailable and is excluded from exposure score components.
 5. Astral supplies solar position and daylight times. Overpass building/tree/green-cover features support estimated shade calculations. Building footprints are evaluated in local metric coordinates; tagged height is preferred, while `building:levels × 3 m` is clearly an estimate. Route shade is weighted by evaluated interval length and returned with data coverage/confidence.
 6. The same candidate analysis supports replay, route exposure and shade comparisons, normalized strategy ranking, Pareto-dominance labels, and 30-minute departure candidates. Best-time recommendations obey the configured extra-time and forecast-availability constraints.
-7. Civic reports are handled separately by the same API application and persisted to SQLite. New reports remain unverified; filters and summaries describe user submissions, not measured environmental conditions.
+7. Civic reports are handled separately by the same API application and persisted to SQLite in development or PostgreSQL when `DATABASE_URL` is set. `APP_ENV=production` requires PostgreSQL. New reports remain unverified; status changes and deletion require a `CIVIC_ADMIN_TOKEN`; filters and summaries describe user submissions, not measured environmental conditions.
 
 ## Data contracts
 
 - Existing navigation and optimizer contracts remain available.
 - The new analysis endpoint is `POST /api/route-intelligence/analyze`.
-- Civic paths are `GET/POST /api/civic/reports`, `PATCH/DELETE /api/civic/reports/{report_id}`, and `GET /api/civic/hotspots`.
+- Civic paths are `GET/POST /api/civic/reports`, `PATCH/DELETE /api/civic/reports/{report_id}`, and `GET /api/civic/hotspots`. The write and delete moderation actions require a bearer token configured only on the backend.
 - Public data services are best effort. Forecast values, mapped feature coverage, and route alternatives can vary by request and location.
 
 ## Deliberate limitations
@@ -61,3 +61,4 @@ flowchart LR
 - Departure evaluation holds route duration constant and does not model future traffic.
 - Civic coordinate-cell groupings are approximate spatial summaries, not official Bengaluru neighbourhood boundaries.
 - Exposure indices and personal profiles are explanatory decision-support values, not medical risk assessments.
+- SQLite remains the local default and existing SQLite files are not automatically copied to PostgreSQL. Back up and explicitly import any records you need before switching a deployment.

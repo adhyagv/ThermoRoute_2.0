@@ -1,3 +1,5 @@
+import pytest
+
 from backend.services.integration_status import (
     get_fortyguard_status,
     record_request_result,
@@ -35,6 +37,22 @@ def test_successful_request_state_is_recorded():
     assert status["reachable"] is True
     assert status["last_sample_used_fallback"] is False
     assert status["checked_at"] is not None
+
+
+def test_provider_error_body_is_not_exposed(monkeypatch):
+    from backend.services import fortyguard
+
+    class FailedResponse:
+        ok = False
+        status_code = 500
+        text = "private response token"
+
+    monkeypatch.setattr(fortyguard, "API_KEY", "test-api-key")
+    monkeypatch.setattr(fortyguard.requests, "post", lambda *_args, **_kwargs: FailedResponse())
+    with pytest.raises(FortyGuardError) as error:
+        FortyGuardClient()._post("test", {})
+    assert "private response token" not in str(error.value)
+    assert get_fortyguard_status()["last_error"] == "External provider request failed."
 
 
 def test_temperature_provider_marks_fallback_sample(monkeypatch):

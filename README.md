@@ -12,7 +12,7 @@ ThermoRoute is a research and decision-support prototype that compares road-netw
 | Navigation | Geocoding, drive/cycle/walk route requests, up to three alternatives where supported, turn instructions, MapLibre 3D buildings, GPS marker/progress, voice prompts, route share/save/export | OSRM-compatible public routing has no live congestion. GPS requires browser permission and localhost/HTTPS. |
 | Environment | Search a place and inspect model current temperature, apparent temperature, UV, AQI, humidity, precipitation, wind and PM2.5 | Point/grid-cell model data, not a local sensor measurement. |
 | Mobility | Compare driving, cycling and walking alternatives using actual returned route geometry; rank by balanced, fastest, shortest, coolest or cleanest-air objectives; inspect normalized scores and Pareto domination | Ranking covers only the returned routes. Missing environmental values remain unavailable and are not treated as zero exposure. No live traffic. |
-| Civic | Submit and filter heat, no-shade, waterlogging, broken-signal, poor-air-quality, pedestrian-infrastructure, unsafe-crossing and other observations; update status; view category, approximate area-cell and trend summaries | SQLite persistence. Reports default to **Unverified** and represent community submissions, not measured heat intensity. |
+| Civic | Submit and filter heat, no-shade, waterlogging, broken-signal, poor-air-quality, pedestrian-infrastructure, unsafe-crossing and other observations; moderator-only status updates/deletion; category, approximate area-cell and trend summaries | SQLite locally; PostgreSQL when `DATABASE_URL` is configured. Reports default to **Unverified** and represent community submissions, not measured heat intensity. |
 | AI Insights | Replay sampled route conditions at predicted arrival times; inspect temperature, apparent temperature, UV, AQI, PM2.5, estimated shade and risk indicators; compare solar times, route alternatives and departure windows | Shared rule-based analysis. Forecasts are model outputs; shade and exposure are estimates, not medical risk scores. |
 | Simulation | Inspect hourly weather and air-quality forecast points over the next hours | Single-coordinate model forecast, not a physical urban-climate simulation. |
 | City Planner | Explore the OpenFreeMap/OSM map with 3D building extrusions and stored civic report markers | Building coverage/heights and civic report density depend on mapped data. Heat and shade raster layers are not implemented. |
@@ -38,7 +38,7 @@ flowchart TD
   ANALYSIS --> SHADOW[Estimated route shade]
   ANALYSIS --> DECISION[Route ranking and Pareto comparison]
   ANALYSIS --> DEPARTURE[Best-time candidates]
-  API --> DB[(SQLite civic reports and summaries)]
+  API --> DB[(SQLite local / PostgreSQL hosted civic reports)]
   DB --> CIVIC[Community heat intelligence]
   API --> HEALTH[Integration status / provenance]
 ```
@@ -56,7 +56,7 @@ src/
   types/                   API and navigation types
 backend/
   main.py                  FastAPI application and REST endpoints
-  services/                Route analysis, forecasts, solar/shade and SQLite services
+  services/                Route analysis, forecasts, solar/shade and civic storage
   tests/                   Pytest unit and API tests
   data/                    Existing sample/fallback data and SQLite runtime file
 .github/workflows/ci.yml   Frontend and backend CI
@@ -69,11 +69,12 @@ Requirements: Node.js 20+ recommended, npm, Python 3.10+ (Python 3.11 recommende
 
 ### 1. Frontend
 
-Open the project root (the folder containing `package.json`) in VS Code. Use `npm install` to synchronize the current `package.json` and lockfile. Do not run `npm ci` against an older lockfile supplied with a previous ZIP.
+Open the project root (the folder containing `package.json`) in VS Code. Use `npm ci` to install the dependencies recorded in the lockfile.
 
 ```powershell
-npm install
+npm ci
 npm run check:version
+npm run lint
 npm run type-check
 npm run build
 npm run dev
@@ -101,13 +102,15 @@ If PowerShell blocks environment activation, run `Set-ExecutionPolicy -Scope Pro
 
 Copy `.env.example` to `.env` for backend-only optional settings. Copy `.env.frontend.example` to `.env.local` only if you need to override frontend service URLs. Keep API keys only in backend `.env`; never prefix secrets with `VITE_`.
 
+Copy `.env.example` to `.env` for local backend settings. Leave `DATABASE_URL` empty to preserve the existing SQLite development database; `CIVIC_DB_PATH` can override its path. `CIVIC_ADMIN_TOKEN` protects report status changes and deletion; enter it in the Civic module when moderating, and it is held only in page memory. `CORS_ORIGINS` defaults to the two local Vite origins.
+
 `FORTYGUARD_API_KEY` is optional. FortyGuard is not required for Open-Meteo route-wide forecast sampling. If it is not configured, the existing legacy `/api/optimize` integration can use its explicit fallback path; the new route-wide analysis does not invent weather/AQI values when forecast requests fail.
 
 ## Data honesty and provenance
 
 | Label | Meaning in ThermoRoute | Example |
 |---|---|---|
-| **Live** | An event or record fetched at request time, not necessarily a physical sensor measurement | A citizen report read from the local SQLite database; API health response |
+| **Live** | An event or record fetched at request time, not necessarily a physical sensor measurement | A citizen report read from the configured database; API health response |
 | **Forecast** | A model-generated current or future condition | Open-Meteo temperature/apparent temperature, UV and CAMS-derived AQI |
 | **Estimated** | A value produced by ThermoRoute's assumptions/calculations | Solar position, estimated building shadow, exposure index, CO₂ estimate, route duration |
 | **Fallback** | A backup value explicitly used because the primary integration did not provide data | Legacy backend climate fallback sample |
@@ -162,7 +165,7 @@ The service evaluates departure candidates at 30-minute intervals up to six hour
 
 ### Community heat intelligence
 
-Civic reports are validated with Pydantic and persisted in SQLite using parameterized SQL. Existing database files are migrated to add status/anonymity fields. Create requests are limited to 10 per client IP per hour; new reports are **Unverified**. The report API supports category, status and date filters, status updates and deletion. The hotspot summary includes category counts, seven- and thirty-day trends, and approximate coordinate-cell groupings. Those cells are not official neighbourhood boundaries and report density is only the density of community submissions—not scientifically measured heat intensity.
+Civic reports are validated with Pydantic and persisted using parameterized SQL. SQLite remains the local default, including the existing schema upgrade that preserves old rows. Set `DATABASE_URL` to use PostgreSQL; in `APP_ENV=production`, the app refuses to report healthy or serve civic endpoints without PostgreSQL. Create requests are limited to 10 per client IP per hour; new reports are **Unverified**. Status changes and deletion require a `CIVIC_ADMIN_TOKEN`. The hotspot summary includes category counts, seven- and thirty-day trends, and approximate coordinate-cell groupings. Those cells are not official neighbourhood boundaries and report density is only the density of community submissions—not scientifically measured heat intensity.
 
 ### Rain/waterlogging estimate
 
@@ -182,9 +185,9 @@ For driving, the prototype multiplies distance by an assumed 170 g CO₂ per km.
 | `GET /api/fortyguard/status/{activity_id}` | Optional legacy FortyGuard activity status |
 | `POST /api/optimize` | Existing route/thermal optimization workflow |
 | `GET /api/civic/reports` | Read reports with optional category, status and date filters |
-| `POST /api/civic/reports` | Create a local SQLite report (initial status: unverified) |
-| `PATCH /api/civic/reports/{report_id}` | Update a report status |
-| `DELETE /api/civic/reports/{report_id}` | Delete a report |
+| `POST /api/civic/reports` | Create a report (initial status: unverified) |
+| `PATCH /api/civic/reports/{report_id}` | Update status; requires `Authorization: Bearer <CIVIC_ADMIN_TOKEN>` |
+| `DELETE /api/civic/reports/{report_id}` | Delete a report; requires `Authorization: Bearer <CIVIC_ADMIN_TOKEN>` |
 | `GET /api/civic/hotspots` | Category, approximate area-cell and reporting-trend summary |
 | `POST /api/route-intelligence/analyze` | Shared route sampling, weather/AQI interpolation, solar/shade estimates, candidate ranking and departure comparison |
 | `GET /api/routes` | Legacy sample/demo route endpoint; returns explicitly labelled sample routes |
@@ -192,21 +195,26 @@ For driving, the prototype multiplies distance by an assumed 170 g CO₂ per km.
 ## Automated checks
 
 ```powershell
+npm ci
 npm run check:version
+npm run lint
 npm run type-check
 npm run build
-py -m pip install -r backend/requirements-dev.txt
+py -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
 py -m compileall -q backend
 py -m pytest -q
 ```
 
-GitHub Actions runs the frontend version/type/build steps and backend compilation/pytest checks on pushes and pull requests. Frontend dependency installation uses `npm install` so the lockfile can be reconciled if a dependency changes.
+GitHub Actions runs frontend version/lint/type/build and backend compilation/pytest checks on pushes and pull requests using the lockfile.
 
 ## Project documentation
 
 - [Architecture and data flow](./docs/architecture.md)
-- [Demo walkthrough](./docs/demo-script.md)
+- [Demo script](./DEMO_SCRIPT.md)
+- [Detailed feature walkthrough](./docs/demo-script.md)
 - [Viva questions and answer cues](./docs/viva-questions.md)
+- [Deployment guide](./DEPLOYMENT.md)
+- [Production architecture](./ARCHITECTURE.md)
 
 ## Known limitations
 
@@ -217,11 +225,12 @@ GitHub Actions runs the frontend version/type/build steps and backend compilatio
 5. Forecasts are model grid-cell data. Spatial and hourly resolution may not represent microclimates or exact street conditions.
 6. Departure-time comparison holds candidate route durations constant, applies the configured extra-time constraint, and does not model future traffic.
 7. Rain/waterlogging flags are heuristic estimates, not flood warnings.
-8. Civic reports are stored locally, are unverified until explicitly reviewed, and are not a public multi-user hosted service. Approximate coordinate cells are not neighbourhood boundaries. Do not enter personal or sensitive information.
+8. Local development defaults to SQLite. Hosted civic reports require PostgreSQL; switching databases does not automatically copy local SQLite records. Reports remain unverified until a moderator updates them. Approximate coordinate cells are not neighbourhood boundaries. Do not enter personal or sensitive information.
 9. The Three.js concept city remains synthetic; City Planner's MapLibre view is the georeferenced map with available building data.
 10. Exposure scores and profile weights are experimental and are not medically validated. Do not use them for health or emergency decisions.
 11. Natural-language LLM explanations are not connected. The UI presents computed facts and limitations directly; no API key or generated metrics are used.
 12. Route comparison covers only alternatives returned by the public routing service and is not an exhaustive road-network optimization.
+13. The Three.js concept scene and MapLibre map are loaded on demand, but their production chunks remain large and can take longer to download on slow connections.
 
 ## Attribution and service policies
 

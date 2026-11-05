@@ -253,7 +253,7 @@ export default function CityDigitalTwin({ time }: { time: number }) {
   const [resetSignal, setResetSignal] = useState(0);
   const [view, setView] = useState<'orbit' | 'top'>('orbit');
   return <div className="digital-twin">
-    <Canvas shadows dpr={[1, 1.6]} gl={{ antialias: true, alpha: false }}>
+    <Canvas shadows="percentage" dpr={[1, 1.6]} gl={{ antialias: true, alpha: false }}>
       <Scene heat={heat} shade={shade} air={air} flood={flood} trafficSigns={trafficSigns} resetSignal={resetSignal} view={view} time={time} />
     </Canvas>
     <div className="scene-hud scene-hud-top">
